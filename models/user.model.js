@@ -1,8 +1,14 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
+const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 
 const userSchema = new Schema({
+    email: {
+        type: String,
+        required: [true, "Vui lòng nhập email của bạn"],
+        unique: true,
+    },
     username: {
         type: String,
         unique: true,
@@ -24,6 +30,9 @@ const userSchema = new Schema({
             message: "Mật khẩu xác nhận không khớp.",
         },
     },
+    passwordChangeAt: Date,
+    passwordResetToken: String,
+    passwordResetExpires: Date,
 });
 
 userSchema.pre("save", async function (next) {
@@ -33,6 +42,31 @@ userSchema.pre("save", async function (next) {
     }
     next();
 });
+
+userSchema.pre("save", function (next) {
+    if (this.isModified("password") && !this.isNew) {
+        this.passwordChangeAt = Date.now();
+    }
+    next();
+});
+
+userSchema.methods.changePasswordAfter = function (JWTTimestamps) {
+    if (this.passwordChangeAt) {
+        const changedTimestamp = this.passwordChangeAt.getTime() / 1000;
+        return JWTTimestamps < changedTimestamp;
+    }
+    return false;
+};
+
+userSchema.methods.createPasswordResetToken = function () {
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    this.passwordResetToken = crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+    this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+    return resetToken;
+};
 
 userSchema.methods.correctPassword = async function (password, userPassword) {
     return await bcrypt.compare(password, userPassword);
